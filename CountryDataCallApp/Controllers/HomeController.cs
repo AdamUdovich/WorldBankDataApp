@@ -1,43 +1,69 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using CountryDataCallApp.Models;
+using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 
-namespace CountryDataCallApp.Controllers
+namespace WeatherStation.Controllers
 {
+    [Route("api/[controller]")]
     public class HomeController : Controller
     {
-        public IActionResult Index()
+        private readonly IOptions<AppOptions> _options;
+
+        public HomeController(IOptions<AppOptions> options)
         {
-            return View();
+            _options = options;
         }
 
-        public IActionResult About()
+        [HttpGet("[action]/{city}")]
+        public async Task<IActionResult> City(string city)
         {
-            ViewData["Message"] = "Your application description page.";
+            using (var client = new HttpClient())
+            {
+                try
+                {
+                    client.BaseAddress = new Uri("http://api.openweathermap.org");
+                    var response = await client.GetAsync($"/data/2.5/weather?q={city}&appid={_options.Value.OpenWeatherApiKey}&units=metric");
+                    response.EnsureSuccessStatusCode();
 
-            return View();
+                    var stringResult = await response.Content.ReadAsStringAsync();
+                    var rawWeather = JsonConvert.DeserializeObject<OpenWeatherResponse>(stringResult);
+                    return Ok(new
+                    {
+                        Temp = rawWeather.Main.Temp,
+                        Summary = string.Join(",", rawWeather.Weather.Select(x => x.Main)),
+                        City = rawWeather.Name
+                    });
+                }
+                catch (HttpRequestException httpRequestException)
+                {
+                    return BadRequest($"Error getting weather from OpenWeather: {httpRequestException.Message}");
+                }
+            }
         }
+    }
 
-        public IActionResult Contact()
-        {
-            ViewData["Message"] = "Your contact page.";
+    public class OpenWeatherResponse
+    {
+        public string Name { get; set; }
 
-            return View();
-        }
+        public IEnumerable<WeatherDescription> Weather { get; set; }
 
-        public IActionResult Privacy()
-        {
-            return View();
-        }
+        public Main Main { get; set; }
+    }
 
-        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
-        public IActionResult Error()
-        {
-            return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
-        }
+    public class WeatherDescription
+    {
+        public string Main { get; set; }
+        public string Description { get; set; }
+    }
+
+    public class Main
+    {
+        public string Temp { get; set; };
     }
 }
